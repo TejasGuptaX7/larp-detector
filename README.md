@@ -30,14 +30,21 @@ npm run start        # http://localhost:8787
 The frontend points at `http://localhost:8787` by default; override with
 `VITE_JUDGE_URL` when you deploy the server somewhere else.
 
-> **Transcription:** for fast, accurate live captions, set an `ASSEMBLYAI_API_KEY`
-> on the judge server (free $50 credit, no card — [assemblyai.com](https://www.assemblyai.com)).
-> The browser then streams to AssemblyAI's realtime API using a short-lived token
-> the server mints, so the key never reaches the client. **Without a key** it falls
-> back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
-> (no key, cross-browser, but slower with a ~100 MB one-time model download), then
-> to the Web Speech API. Speaker attribution is always done locally. Must be served
-> over **HTTPS** (or localhost) for microphone access.
+> **Transcription (fast + accurate live captions):** uses AssemblyAI realtime.
+> Get a key (free $50, no card — [assemblyai.com](https://www.assemblyai.com)),
+> then either:
+>
+> - **Quickest (no server):** put `VITE_ASSEMBLYAI_API_KEY=your-key` in a `.env`
+>   file at the project root and rebuild. The browser connects directly. ⚠️ the
+>   key ends up in the JS bundle — fine for a personal demo, not for a public site.
+> - **Secure (recommended for hosting):** set `ASSEMBLYAI_API_KEY` on the judge
+>   server instead; the browser fetches a short-lived token from `/api/aai-token`
+>   so the real key never reaches the client.
+>
+> The status pill shows the active engine: **"Live · AssemblyAI"** when connected.
+> With no key it falls back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
+> ("On-device (slow)") then Web Speech. Speaker attribution is always local. Must
+> be served over **HTTPS** (or localhost) for microphone access.
 
 ## How the speaker detection works
 

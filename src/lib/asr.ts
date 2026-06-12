@@ -44,7 +44,7 @@ export function startAsr(h: SttHandlers): SttHandle {
       }
     } else if (m.type === "ready") {
       ready = true;
-      h.onStatus?.("listening");
+      h.onStatus?.("listening", "on-device");
     } else if (m.type === "error") {
       // Model couldn't load — let the caller fall back to another engine.
       h.onStatus?.("error", "asr-unavailable");

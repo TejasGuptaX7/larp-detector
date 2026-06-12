@@ -12,6 +12,7 @@ import { describeVoice, type VoiceEngine } from "../lib/voice";
 import { ConvoRecorder, type Recording } from "../lib/recorder";
 import { Summary } from "./Summary.tsx";
 import type { Line } from "./Summary.tsx";
+import { usePostHog } from "@posthog/react";
 
 type Props = { onStop: () => void };
 
@@ -38,6 +39,7 @@ const COLORS = ["var(--p1)", "var(--p2)"];
 
 export function LiveScreen({ onStop }: Props) {
   const profiles = getProfiles();
+  const posthog = usePostHog();
   const names: [string, string] = [
     profiles[0]?.name || "Person 1",
     profiles[1]?.name || "Person 2",
@@ -219,6 +221,13 @@ export function LiveScreen({ onStop }: Props) {
     stt.current?.stop();
     const rec = recorder.current ? await recorder.current.stop() : null;
     const log = gateway.current?.getLog() ?? [];
+    const finalScores: [number, number] = [Math.round(lanes[0].score), Math.round(lanes[1].score)];
+    posthog?.capture("session_ended", {
+      duration_sec: elapsed,
+      score_p1: finalScores[0],
+      score_p2: finalScores[1],
+      line_count: log.length,
+    });
     setSummary({
       lines: log.map((l) => ({
         t: l.t,
@@ -227,7 +236,12 @@ export function LiveScreen({ onStop }: Props) {
         text: l.text,
       })),
       rec,
-      scores: [Math.round(lanes[0].score), Math.round(lanes[1].score)],
+      scores: finalScores,
+    });
+    posthog?.capture("summary_viewed", {
+      score_p1: finalScores[0],
+      score_p2: finalScores[1],
+      line_count: log.length,
     });
   }
 
@@ -349,7 +363,18 @@ export function LiveScreen({ onStop }: Props) {
           <div ref={feedEnd} />
         </div>
         <div className="feed-foot">
-          <span>{judgeOn ? "due diligence: live" : "vibe check only"}</span>
+          <span>
+            {sttStatus === "listening" && sttDetail === "assemblyai"
+              ? "AssemblyAI · realtime"
+              : sttStatus === "listening" && sttDetail === "on-device"
+                ? "on-device (slow) — set ASSEMBLYAI_API_KEY for fast captions"
+                : sttStatus === "listening" && sttDetail === "web speech"
+                  ? "web speech (limited)"
+                  : sttStatus === "loading"
+                    ? "starting transcription…"
+                    : "transcription idle"}
+            {judgeOn ? " · AI judge" : ""}
+          </span>
           <span>{feed.length} lines</span>
         </div>
       </section>
@@ -392,7 +417,13 @@ function DetectBar({ detect, names }: { detect: Detect; names: [string, string] 
 function SttChip({ status, detail }: { status: SttStatus; detail: string }) {
   const label =
     status === "listening"
-      ? "Hearing you"
+      ? detail === "assemblyai"
+        ? "Live · AssemblyAI"
+        : detail === "on-device"
+          ? "On-device (slow)"
+          : detail === "web speech"
+            ? "Web Speech"
+            : "Hearing you"
       : status === "loading"
         ? `Loading transcriber ${detail && detail !== "fallback" ? detail : ""}`.trim()
         : status === "restarting"

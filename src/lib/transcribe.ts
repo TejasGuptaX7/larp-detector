@@ -8,8 +8,31 @@ import { startAsr } from "./asr";
 import { startStt, sttSupported, type SttHandlers, type SttHandle } from "./stt";
 
 const BASE = import.meta.env.VITE_JUDGE_URL ?? "http://localhost:8787";
+// Simplest path: drop the AssemblyAI key in the frontend env and the browser
+// connects directly (the key doubles as the WS token). Convenient for a personal
+// demo — the key ends up in the bundle. For real hosting, leave this unset and
+// mint a short-lived token server-side (/api/aai-token) instead.
+const DIRECT_KEY = import.meta.env.VITE_ASSEMBLYAI_API_KEY as string | undefined;
 
-async function fetchAaiToken(): Promise<string | null> {
+async function getAaiToken(): Promise<string | null> {
+  if (DIRECT_KEY && DIRECT_KEY.trim()) {
+    const key = DIRECT_KEY.trim();
+    // Prefer minting a short-lived token from the browser (if AssemblyAI's CORS
+    // allows it); otherwise the key itself works as the WS token.
+    try {
+      const r = await fetch(
+        "https://streaming.assemblyai.com/v3/token?expires_in_seconds=300",
+        { headers: { Authorization: key } },
+      );
+      if (r.ok) {
+        const d = (await r.json()) as { token?: string };
+        if (typeof d.token === "string") return d.token;
+      }
+    } catch {
+      /* CORS/network — fall through to using the key directly */
+    }
+    return key;
+  }
   try {
     const r = await fetch(`${BASE}/api/aai-token`);
     if (!r.ok) return null;
@@ -61,7 +84,7 @@ export function startTranscription(h: SttHandlers): SttHandle {
   let stopped = false;
 
   (async () => {
-    const token = await fetchAaiToken();
+    const token = await getAaiToken();
     if (stopped) return;
 
     if (token) {

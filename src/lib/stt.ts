@@ -119,7 +119,7 @@ export function startStt(h: SttHandlers): SttHandle {
 
     try {
       r.start();
-      h.onStatus?.("listening");
+      h.onStatus?.("listening", "web speech");
     } catch {
       scheduleRestart();
     }

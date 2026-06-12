@@ -39,6 +39,21 @@ export function startAssemblyAI(h: SttHandlers, token: string): SttHandle {
 
   h.onStatus?.("loading");
 
+  // If we don't hear back within a few seconds the token/connection is bad —
+  // bail so the caller can fall back instead of hanging on a dead socket.
+  let connected = false;
+  const watchdog = window.setTimeout(() => {
+    if (!connected && !stopped) {
+      h.onStatus?.("error", "assemblyai");
+      h.onError?.("assemblyai");
+      try {
+        ws.close();
+      } catch {
+        /* noop */
+      }
+    }
+  }, 6000);
+
   let src: MediaStreamAudioSourceNode | null = null;
   let proc: ScriptProcessorNode | null = null;
   let mute: GainNode | null = null;
@@ -75,7 +90,9 @@ export function startAssemblyAI(h: SttHandlers, token: string): SttHandle {
       return;
     }
     if (m.type === "Begin") {
-      h.onStatus?.("listening");
+      connected = true;
+      clearTimeout(watchdog);
+      h.onStatus?.("listening", "assemblyai");
     } else if (m.type === "Turn") {
       const text = (m.transcript || "").trim();
       // A formatted end-of-turn is the clean final; everything else is interim.
@@ -101,6 +118,7 @@ export function startAssemblyAI(h: SttHandlers, token: string): SttHandle {
   return {
     stop: () => {
       stopped = true;
+      clearTimeout(watchdog);
       try {
         if (proc) proc.onaudioprocess = null;
         proc?.disconnect();

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { verdict } from "../lib/score";
 import { callAnalyze, type Analysis } from "../lib/judgeClient";
 import type { Recording } from "../lib/recorder";
+import { usePostHog } from "@posthog/react";
 
 export type Line = { t: number; speaker: number; name: string; text: string };
 
@@ -16,6 +17,7 @@ type Props = {
 export function Summary({ lines, rec, names, scores, onDone }: Props) {
   const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
   const colors = ["var(--p1)", "var(--p2)"];
+  const posthog = usePostHog();
 
   const [ai, setAi] = useState<Analysis | null>(null);
   const [aiState, setAiState] = useState<"loading" | "done" | "off">(
@@ -40,6 +42,7 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
   }, []);
 
   function downloadTranscript() {
+    posthog?.capture("transcript_downloaded", { line_count: lines.length });
     const body = lines
       .map((l) => `[${stamp(l.t, lines[0]?.t ?? l.t)}] ${l.name}: ${l.text}`)
       .join("\n");
@@ -52,11 +55,16 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  function handleNewSession() {
+    posthog?.capture("new_session_started");
+    onDone();
+  }
+
   return (
     <div className="summary">
       <div className="summary-top">
         <div className="summary-mark">SESSION REPORT</div>
-        <button className="btn-stop" onClick={onDone}>
+        <button className="btn-stop" onClick={handleNewSession}>
           NEW
         </button>
       </div>
@@ -119,7 +127,12 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
       {rec && (
         <div className="summary-audio">
           <audio src={rec.url} controls className="summary-player" />
-          <a className="summary-dl" href={rec.url} download="larp-conversation.webm">
+          <a
+            className="summary-dl"
+            href={rec.url}
+            download="larp-conversation.webm"
+            onClick={() => posthog?.capture("audio_downloaded")}
+          >
             Download audio
           </a>
         </div>
