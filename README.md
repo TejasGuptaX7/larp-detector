@@ -30,9 +30,13 @@ npm run start        # http://localhost:8787
 The frontend points at `http://localhost:8787` by default; override with
 `VITE_JUDGE_URL` when you deploy the server somewhere else.
 
-> **Browser:** use **Chrome**. Live transcription uses the Web Speech API, which is
-> Chrome-only and needs network access. The voice/speaker detection works in any
-> modern browser, but you won't get transcripts (and therefore scores) elsewhere.
+> **Transcription:** runs **fully in the browser** via [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
+> (an ONNX speech model loaded with transformers.js) — no API key, no Google
+> backend, and it works the same in Chrome, Brave, Arc, Firefox and Safari. The
+> first time you open the live dashboard it downloads the model (~100 MB, cached
+> after that); the status pill shows the progress. If the model can't load it
+> falls back to the Web Speech API where available. Must be served over **HTTPS**
+> (or localhost) for microphone access.
 
 ## How the speaker detection works
 

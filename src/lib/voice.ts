@@ -24,14 +24,20 @@ const F_MAX = 8000; // Hz
 const PITCH_MIN_HZ = 70;
 const PITCH_MAX_HZ = 350;
 // Below this normalized-autocorrelation clarity the "pitch" is just noise.
-const PITCH_CLARITY = 0.55;
+// Raised from 0.55 — a low bar let half-voiced / noisy frames report a bogus
+// pitch, which (at 55% match weight) octave-flipped attribution to the wrong
+// speaker. We only trust clearly-periodic frames now.
+const PITCH_CLARITY = 0.7;
 
 /**
  * Loudness gate: ignore frames quieter than this. With autoGainControl now OFF
- * (see audio.ts) real conversational speech sits well above this, while room
- * tone stays below it.
+ * (see audio.ts) raw room tone is louder than it would be on a "cleaned" call,
+ * so this has to sit comfortably above ambient noise — 0.012 let HVAC/handling
+ * noise count as speech (enrollment finished on noise in a few seconds). 0.022
+ * is a floor; enrollment and the live VAD also calibrate against the measured
+ * noise floor on top of this.
  */
-export const VOICED_GATE = 0.012;
+export const VOICED_GATE = 0.022;
 const VOICE_RMS = VOICED_GATE;
 
 // Timbre feature layout: 12 MFCC + centroid + rolloff + flatness + zero-cross.
@@ -158,7 +164,7 @@ function detectPitch(
         bestLag = i;
       }
       // first clear peak above threshold wins — guards against octave doubling
-      if (bestVal > 0.8) break;
+      if (bestVal > 0.9) break;
     }
   }
   if (bestLag < 0 || bestVal < PITCH_CLARITY) return [0, 0];
@@ -210,7 +216,11 @@ export class VoiceEngine {
     let centroidAcc = 0;
     let logSum = 0; // for spectral flatness (geometric mean via log)
     for (let i = 0; i < nBins; i++) {
-      const mag = 10 ** (this.freq[i] / 20); // dB -> magnitude
+      // Clamp the analyser's dB floor: empty bins read ~-100..-160 dB, and that
+      // near-constant floor otherwise dominates log(mel energy) on quiet frames,
+      // collapsing both speakers' MFCCs toward the same vector.
+      const db = this.freq[i] < -90 ? -90 : this.freq[i];
+      const mag = 10 ** (db / 20); // dB -> magnitude
       const p = mag * mag;
       power[i] = p;
       totalPower += p;
@@ -319,8 +329,10 @@ export function buildProfile(name: string, frames: VoiceFrame[]): VoiceProfile {
   for (const v of vecs) for (let i = 0; i < dim; i++) sd[i] += (v[i] - mn[i]) ** 2;
   for (let i = 0; i < dim; i++) {
     sd[i] = Math.sqrt(sd[i] / Math.max(1, vecs.length));
-    // Floor each std so a near-constant dimension can't dominate the distance.
-    sd[i] = Math.max(sd[i], 0.15);
+    // Floor each std so a near-constant dimension can't dominate the distance —
+    // but not so high (was 0.15) that it flattens genuinely discriminative
+    // dimensions and makes the two profiles overlap.
+    sd[i] = Math.max(sd[i], 0.08);
   }
 
   // Pitch statistics from confidently-voiced frames only.
@@ -328,7 +340,7 @@ export function buildProfile(name: string, frames: VoiceFrame[]): VoiceProfile {
     .filter((f) => f.pitch > 0 && f.clarity >= PITCH_CLARITY)
     .map((f) => f.pitch);
   const pm = median(pitches);
-  const ps = Math.max(std(pitches, mean(pitches)), 10);
+  const ps = Math.max(std(pitches, mean(pitches)), 8);
   const pmin = pitches.length ? Math.min(...pitches) : 0;
   const pmax = pitches.length ? Math.max(...pitches) : 0;
 
@@ -364,21 +376,28 @@ export type MatchResult = {
   pitch: number; // measured pitch of this window (0 if unvoiced)
 };
 
-/** Mean diagonal-Gaussian log-likelihood of a window's timbre under a profile. */
+// Temperature for the timbre likelihood. The old code divided the summed z^2 by
+// BOTH the dimension count (16) and 2, which crushed the exponent toward 0 so
+// every profile scored ~1.0 and the two speakers never separated. A single
+// temperature keeps a same-speaker frame high (~0.6-0.9) while an other-speaker
+// frame drops (<~0.3), giving the gateway a real contrast to act on.
+const TIMBRE_TEMP = 18;
+
+/** Diagonal-Gaussian fit of a window's timbre under a profile, in (0,1]. */
 function timbreFit(vec: number[], p: VoiceProfile): number {
   let z2 = 0;
   for (let i = 0; i < vec.length; i++) {
     const z = (vec[i] - p.mean[i]) / p.std[i];
     z2 += z * z;
   }
-  // Average squared z-score -> likelihood in (0,1]. /2 softens the falloff.
-  return Math.exp(-0.5 * (z2 / vec.length) / 2);
+  return Math.exp(-0.5 * z2 / TIMBRE_TEMP);
 }
 
 function pitchFit(pitch: number, p: VoiceProfile): number {
   if (pitch <= 0 || p.pitchMean <= 0) return 0.5; // neutral when unknown
   const z = (pitch - p.pitchMean) / p.pitchStd;
-  return Math.exp(-0.5 * z * z);
+  // Slightly softened so a noisy pitch estimate can't fully dominate timbre.
+  return Math.exp(-0.5 * (z * z) / 1.3);
 }
 
 /**
@@ -399,29 +418,35 @@ export function matchWindow(
   for (const v of vecs) for (let i = 0; i < dim; i++) avg[i] += v[i];
   for (let i = 0; i < dim; i++) avg[i] /= vecs.length;
 
-  const pitches = voiced
-    .filter((f) => f.pitch > 0 && f.clarity >= PITCH_CLARITY)
-    .map((f) => f.pitch);
-  const pm = pitches.length ? median(pitches) : 0;
+  const clearPitches = voiced.filter(
+    (f) => f.pitch > 0 && f.clarity >= PITCH_CLARITY,
+  );
+  const pm = clearPitches.length
+    ? median(clearPitches.map((f) => f.pitch))
+    : 0;
+  const meanClarity = clearPitches.length
+    ? mean(clearPitches.map((f) => f.clarity))
+    : 0;
 
-  // Pitch is the single most discriminative voice cue, so it carries more weight
-  // than timbre — but only when we actually measured a confident pitch.
-  const wPitch = pm > 0 ? 0.55 : 0;
+  // Pitch is the most discriminative cue, but only as far as we actually trust
+  // this window's pitch: weight it by how clearly-periodic the voiced frames
+  // were, so a shaky/octave-prone estimate can't override timbre.
+  const wPitch = pm > 0 ? Math.min(0.45, 0.55 * meanClarity) : 0;
   const wTimbre = 1 - wPitch;
 
-  const scores = profiles.map((p) => {
-    const t = timbreFit(avg, p);
-    const pit = pitchFit(pm, p);
-    return wTimbre * t + wPitch * pit;
-  });
+  const fits = profiles.map(
+    (p) => wTimbre * timbreFit(avg, p) + wPitch * pitchFit(pm, p),
+  );
+
+  // Convert the raw fits into a posterior that sums to 1, so the gateway sees a
+  // genuine 0..1 contrast between the two speakers instead of two numbers that
+  // both hug ~0.5.
+  const sum = fits.reduce((a, b) => a + b, 0) || 1;
+  const scores = fits.map((f) => f / sum);
 
   let bi = 0;
   for (let i = 1; i < scores.length; i++) if (scores[i] > scores[bi]) bi = i;
-  const sorted = [...scores].sort((a, b) => b - a);
-  const top = sorted[0];
-  const second = sorted.length > 1 ? sorted[1] : 0;
-  // Confidence = how cleanly the winner separates from the runner-up, 0.5..1.
-  const conf = top + second > 0 ? top / (top + second) : 0.5;
+  const conf = scores[bi]; // 0.5..1 for two speakers
 
   return { idx: bi, conf, scores, pitch: pm };
 }

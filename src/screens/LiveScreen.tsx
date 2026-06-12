@@ -3,7 +3,8 @@ import { Waveform } from "../components/Waveform";
 import { Gauge } from "../components/Gauge";
 import { verdict } from "../lib/score";
 import { scoreL1 } from "../lib/larp";
-import { startStt, sttSupported, type SttHandle, type SttStatus } from "../lib/stt";
+import { startTranscription } from "../lib/transcribe";
+import type { SttHandle, SttStatus } from "../lib/stt";
 import { callJudge } from "../lib/judgeClient";
 import { getEngine, getMic, getProfiles, getStream } from "../lib/session";
 import { SpeakerGateway, type LabeledLine } from "../lib/gateway";
@@ -117,17 +118,12 @@ export function LiveScreen({ onStop }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  // STT -> gateway routes each final phrase into speaker A or B lane.
+  // Transcription -> gateway routes each final phrase into speaker A or B lane.
   useEffect(() => {
-    if (!sttSupported()) {
-      setSttStatus("error");
-      setSttDetail("use Chrome");
-      return;
-    }
     const gw = gateway.current;
     if (!gw) return;
 
-    const h = startStt({
+    const h = startTranscription({
       onInterim: (text) => setCaption(text),
       onFinal: (text) => {
         if (!text) return;
@@ -247,6 +243,7 @@ export function LiveScreen({ onStop }: Props) {
   const leader =
     lanes[0].score === lanes[1].score ? null : lanes[0].score > lanes[1].score ? 0 : 1;
   const live = sttStatus === "listening" || sttStatus === "restarting";
+  const loadingStt = sttStatus === "loading";
 
   return (
     <div className="dash">
@@ -326,9 +323,11 @@ export function LiveScreen({ onStop }: Props) {
         <div className="feed-scroll">
           {feed.length === 0 && !caption ? (
             <div className="feed-empty">
-              {live
-                ? "Listening… start talking and lines will appear here, tagged by speaker."
-                : "Speech-to-text needs Chrome. Check the status pill above."}
+              {loadingStt
+                ? "Preparing on-device transcription (one-time ~100MB download)…"
+                : live
+                  ? "Listening… start talking and lines will appear here, tagged by speaker."
+                  : "Transcription unavailable — check the status pill above."}
             </div>
           ) : (
             feed.map((l, i) => (
@@ -391,11 +390,13 @@ function SttChip({ status, detail }: { status: SttStatus; detail: string }) {
   const label =
     status === "listening"
       ? "Hearing you"
-      : status === "restarting"
-        ? "Reconnecting"
-        : status === "error"
-          ? detail || "STT error"
-          : "STT off";
+      : status === "loading"
+        ? `Loading transcriber ${detail && detail !== "fallback" ? detail : ""}`.trim()
+        : status === "restarting"
+          ? "Reconnecting"
+          : status === "error"
+            ? detail || "transcription error"
+            : "off";
   return <span className={`stt-chip stt-${status}`}>{label}</span>;
 }
 

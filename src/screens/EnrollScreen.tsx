@@ -21,9 +21,11 @@ type Slot = {
 
 const FRAME_MS = 50;
 // Enrollment finishes when we have this much ACTUAL SPEECH — not wall time.
-// The clock only runs while the person is talking, so pauses can't truncate it.
-const TARGET_VOICED_FRAMES = 70; // ~3.5s of voiced audio
-const MAX_MS = 18_000; // hard cap so it can't run forever
+// "Voiced" now means loud AND pitched (real phonation), so room noise can't
+// fill the bar. ~6s of genuine speech makes a far more separable profile than
+// the old ~3.5s (which often finished on noise in a few seconds).
+const TARGET_VOICED_FRAMES = 120; // ~6s of voiced audio
+const MAX_MS = 24_000; // hard cap so it can't run forever
 
 const INIT: Slot[] = [
   { name: "Person 1", color: "var(--p1)", profile: null },
@@ -86,7 +88,9 @@ export function EnrollScreen({ onReady }: Props) {
     const id = setInterval(() => {
       const f = e.frame();
       frames.push(f);
-      if (f.rms > VOICED_GATE) voiced++;
+      // Count a frame as real speech only when it's loud AND clearly pitched —
+      // this is what stops raw room noise from filling the bar in a few seconds.
+      if (f.rms > VOICED_GATE && f.pitch > 0 && f.clarity >= 0.5) voiced++;
       setLevel(Math.min(1, f.rms * 16));
 
       const p = Math.min(1, voiced / TARGET_VOICED_FRAMES);
