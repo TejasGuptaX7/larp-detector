@@ -45,6 +45,15 @@ export async function openMic(deviceId?: string): Promise<MicHandle> {
   });
 
   const ac = ctx();
+  // Make sure the context is actually running before anyone reads frames —
+  // a suspended context returns silence, which would poison the first profile.
+  if (ac.state !== "running") {
+    try {
+      await ac.resume();
+    } catch {
+      /* will retry on next user gesture */
+    }
+  }
   const src = ac.createMediaStreamSource(stream);
   const analyser = ac.createAnalyser();
   analyser.fftSize = 1024;

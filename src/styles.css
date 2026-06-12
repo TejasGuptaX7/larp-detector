@@ -930,7 +930,8 @@ button {
   color: var(--low);
   border-color: color-mix(in srgb, var(--low) 35%, transparent);
 }
-.stt-chip.stt-restarting {
+.stt-chip.stt-restarting,
+.stt-chip.stt-loading {
   color: var(--mid);
   border-color: color-mix(in srgb, var(--mid) 35%, transparent);
 }

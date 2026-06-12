@@ -39,10 +39,13 @@ export type LiveState = {
 
 const DECISION_TTL_MS = 20_000;
 const ATTRIBUTION_LOOKBACK_MS = 15_000;
-// Smoothing + hysteresis tuning.
-const SMOOTH = 0.72; // weight on the previous presence estimate
-const SWITCH_MARGIN = 0.08; // challenger must lead the active speaker by this
-const SILENCE_HOLD_MS = 700; // keep showing the last speaker briefly after speech
+// Smoothing is for the UI meter ONLY — switching is driven by the raw per-frame
+// posterior so a real turn change isn't crushed below the margin by the EMA.
+const SMOOTH = 0.6; // weight on the previous presence estimate (display only)
+const SEED_MARGIN = 0.08; // posterior gap needed to first seat a speaker
+const SWITCH_MARGIN = 0.12; // raw posterior gap the challenger must show to flip
+const DWELL_FRAMES = 3; // ...sustained for this many frames (~180ms @ 60ms)
+const SILENCE_HOLD_MS = 600; // keep showing the last speaker briefly after speech
 
 export class SpeakerGateway {
   private profiles: VoiceProfile[];
@@ -57,6 +60,8 @@ export class SpeakerGateway {
   private presence: [number, number] = [0, 0];
   private conf = 0.5;
   private pitch = 0;
+  private challenger: SpeakerIdx | null = null;
+  private challengerFrames = 0;
 
   constructor(profiles: VoiceProfile[], names: [string, string]) {
     this.profiles = profiles;
@@ -67,7 +72,9 @@ export class SpeakerGateway {
   tick(frame: VoiceFrame): SpeakerIdx | null {
     const buf = this.frameBuf;
     buf.push(frame);
-    if (buf.length > 14) buf.shift();
+    // ~360ms window: long enough to be stable, short enough that one window
+    // rarely straddles a turn boundary (which used to smear attribution).
+    if (buf.length > 6) buf.shift();
 
     const now = Date.now();
     const m = matchWindow(buf, this.profiles);
@@ -76,6 +83,7 @@ export class SpeakerGateway {
       // Silence: let presence decay; drop the active speaker after a short hold.
       this.presence[0] *= 0.9;
       this.presence[1] *= 0.9;
+      this.challengerFrames = 0;
       if (now - this.lastVoiced > SILENCE_HOLD_MS) this.active = null;
       return this.active;
     }
@@ -83,23 +91,36 @@ export class SpeakerGateway {
     this.lastVoiced = now;
     this.pitch = m.pitch;
 
-    // Smooth each speaker's instantaneous fit.
+    // m.scores are posteriors that sum to 1 — the gap is a real 0..1 contrast.
+    const lead: SpeakerIdx = m.scores[0] >= m.scores[1] ? 0 : 1;
+    const gap = Math.abs(m.scores[0] - m.scores[1]);
+    this.conf = m.conf;
+
+    // Smooth for the UI meter only (NOT for the switch decision).
     this.presence[0] = this.presence[0] * SMOOTH + m.scores[0] * (1 - SMOOTH);
     this.presence[1] = this.presence[1] * SMOOTH + m.scores[1] * (1 - SMOOTH);
 
-    const lead = this.presence[0] >= this.presence[1] ? 0 : 1;
-    const gap = Math.abs(this.presence[0] - this.presence[1]);
-    this.conf = m.conf;
-
-    // Hysteresis: switch only when the leader clears the active speaker by a
-    // margin (or when there's no active speaker yet).
-    if (this.active === null) {
-      this.active = lead as SpeakerIdx;
-    } else if (lead !== this.active && gap > SWITCH_MARGIN) {
-      this.active = lead as SpeakerIdx;
+    // Dwell counter: how many consecutive frames the same challenger has led.
+    if (lead === this.challenger) this.challengerFrames++;
+    else {
+      this.challenger = lead;
+      this.challengerFrames = 1;
     }
 
-    this.decisions.push({ t: now, idx: this.active, conf: m.conf });
+    if (this.active === null) {
+      // Seat the first speaker only on a real lead, so a noisy first frame
+      // can't permanently mis-seat attribution.
+      if (gap > SEED_MARGIN) this.active = lead;
+    } else if (lead !== this.active) {
+      // Flip when the challenger has led clearly AND for long enough.
+      if (this.challengerFrames >= DWELL_FRAMES && gap > SWITCH_MARGIN) {
+        this.active = lead;
+      }
+    }
+
+    // Record the RAW per-frame lead (not the latched `active`) so pickSpeaker can
+    // overrule a wrong lock from the accumulated per-frame evidence.
+    this.decisions.push({ t: now, idx: lead, conf: m.conf });
     const cut = now - DECISION_TTL_MS;
     while (this.decisions.length && this.decisions[0].t < cut) {
       this.decisions.shift();

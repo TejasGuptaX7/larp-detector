@@ -32,10 +32,15 @@ function getCtor(): (new () => SpeechRecognitionLike) | null {
 }
 
 export function sttSupported(): boolean {
-  return getCtor() !== null;
+  // The constructor existing is NOT enough — Web Speech also needs a secure
+  // context (https/localhost). Over plain-http LAN it throws on start().
+  return getCtor() !== null && (typeof isSecureContext === "undefined" || isSecureContext);
 }
 
-export type SttStatus = "listening" | "restarting" | "error" | "off";
+export type SttStatus = "listening" | "restarting" | "error" | "off" | "loading";
+
+// Errors that will never self-heal — stop retrying and surface them.
+const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture"]);
 
 export type SttHandlers = {
   onInterim: (text: string) => void;
@@ -55,12 +60,14 @@ export function startStt(h: SttHandlers): SttHandle {
   }
 
   let stopped = false;
+  let fatal = false;
   let rec: SpeechRecognitionLike | null = null;
   let restartTimer: number | null = null;
   let backoff = 300;
+  let networkFails = 0;
 
   function scheduleRestart() {
-    if (stopped || restartTimer !== null) return;
+    if (stopped || fatal || restartTimer !== null) return;
     h.onStatus?.("restarting");
     restartTimer = window.setTimeout(() => {
       restartTimer = null;
@@ -90,12 +97,19 @@ export function startStt(h: SttHandlers): SttHandle {
     };
 
     r.onerror = (e) => {
-      // no-speech + aborted are routine; everything else gets surfaced but we
-      // STILL restart via onend — capture must self-heal.
-      if (e.error !== "no-speech" && e.error !== "aborted") {
+      // no-speech + aborted are routine. Permission/capture errors are fatal —
+      // retrying never helps, so stop and surface them. Persistent 'network'
+      // means this browser has no working speech backend (Brave/Arc/no-key,
+      // offline); after a couple, give up instead of an invisible retry loop.
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      if (FATAL.has(e.error) || (e.error === "network" && ++networkFails >= 2)) {
+        fatal = true;
         h.onStatus?.("error", e.error);
         h.onError?.(e.error);
+        return;
       }
+      h.onStatus?.("error", e.error);
+      h.onError?.(e.error);
     };
 
     r.onend = () => {
