@@ -3,7 +3,7 @@ import { Waveform } from "../components/Waveform";
 import { Gauge } from "../components/Gauge";
 import { verdict } from "../lib/score";
 import { scoreL1 } from "../lib/larp";
-import { startStt, sttSupported, type SttHandle } from "../lib/stt";
+import { startStt, sttSupported, type SttHandle, type SttStatus } from "../lib/stt";
 import { callJudge } from "../lib/judgeClient";
 import { getEngine, getMic, getProfiles, getStream } from "../lib/session";
 import { SpeakerGateway } from "../lib/gateway";
@@ -40,8 +40,10 @@ export function LiveScreen({ onStop }: Props) {
     { name: names[1], color: "var(--high)", score: 0, tags: [], words: 0, lastLine: "", l2: null },
   ]);
   const [elapsed, setElapsed] = useState(0);
-  const [sttOn, setSttOn] = useState(false);
+  const [sttStatus, setSttStatus] = useState<SttStatus>("off");
+  const [sttDetail, setSttDetail] = useState("");
   const [judgeOn, setJudgeOn] = useState(false);
+  const [caption, setCaption] = useState("");
   const [active, setActive] = useState<number | null>(null);
   const [summary, setSummary] = useState<{
     lines: Line[];
@@ -90,16 +92,18 @@ export function LiveScreen({ onStop }: Props) {
   // STT -> gateway routes each final phrase into speaker A or B lane.
   useEffect(() => {
     if (!sttSupported()) {
-      setSttOn(false);
+      setSttStatus("error");
+      setSttDetail("use Chrome");
       return;
     }
     const gw = gateway.current;
     if (!gw) return;
 
     const h = startStt({
-      onInterim: () => {},
+      onInterim: (text) => setCaption(text),
       onFinal: (text) => {
         if (!text) return;
+        setCaption("");
         const line = gw.routeFinal(text);
         setLanes((prev) =>
           prev.map((l, i) =>
@@ -107,12 +111,13 @@ export function LiveScreen({ onStop }: Props) {
           ),
         );
       },
-      onError: (err) => {
-        if (err === "unsupported") setSttOn(false);
+      onStatus: (status, detail) => {
+        setSttStatus(status);
+        setSttDetail(detail ?? "");
       },
+      onError: () => {},
     });
     stt.current = h;
-    setSttOn(true);
     return () => {
       h.stop();
       stt.current = null;
@@ -210,6 +215,15 @@ export function LiveScreen({ onStop }: Props) {
   const leader =
     lanes[0].score === lanes[1].score ? null : lanes[0].score > lanes[1].score ? 0 : 1;
 
+  const sttChip =
+    sttStatus === "listening"
+      ? "HEARING"
+      : sttStatus === "restarting"
+        ? "RECONNECTING"
+        : sttStatus === "error"
+          ? `STT ${sttDetail || "ERROR"}`
+          : "STT OFF";
+
   return (
     <div className="live">
       <div className="live-top">
@@ -217,10 +231,15 @@ export function LiveScreen({ onStop }: Props) {
           <span className="rec-dot" />
           <span>LIVE</span>
         </div>
+        <div className={`stt-chip stt-${sttStatus}`}>{sttChip}</div>
         <div className="clock">{fmt(elapsed)}</div>
         <button className="btn-stop" onClick={handleStop}>
           STOP
         </button>
+      </div>
+
+      <div className={`caption${caption ? " caption-on" : ""}`}>
+        {caption || "listening for speech…"}
       </div>
 
       <div className="arena">
@@ -262,8 +281,8 @@ export function LiveScreen({ onStop }: Props) {
         <div className="stat">
           <span className="stat-k">GATEWAY</span>
           <span className="stat-v">
-            {sttOn ? "VOICE→2" : "OFF"}
-            {judgeOn ? "+L2" : ""}
+            {sttStatus === "listening" || sttStatus === "restarting" ? "VOICE→2" : "OFF"}
+            {judgeOn ? "+AI" : ""}
           </span>
         </div>
         <div className="stat">

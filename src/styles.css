@@ -780,3 +780,188 @@ button {
   line-height: 1.4;
   color: #d8d4cc;
 }
+
+/* ---------- STT health chip ---------- */
+.stt-chip {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--fg-dim);
+  text-transform: uppercase;
+}
+
+.stt-chip.stt-listening {
+  color: var(--low);
+  border-color: var(--low);
+}
+
+.stt-chip.stt-restarting {
+  color: var(--mid);
+  border-color: var(--mid);
+}
+
+.stt-chip.stt-error {
+  color: var(--high);
+  border-color: var(--high);
+}
+
+/* ---------- live caption bar ---------- */
+.caption {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 22px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
+  color: var(--fg-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.caption-on {
+  color: var(--fg);
+  border-color: #3a3a3a;
+}
+
+/* ---------- enroll mic VU strip ---------- */
+.enroll-vu {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px 20px;
+}
+
+.enroll-vu-k {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--fg-dim);
+}
+
+.enroll-vu-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.enroll-vu-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--low);
+  transition: width 0.08s linear;
+}
+
+.enroll-vu-hint {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.enroll-active {
+  outline-width: 2px;
+}
+
+/* ---------- summary AI verdict ---------- */
+.summary-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 20px;
+}
+
+.summary-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+.summary-ai-wait {
+  color: var(--mid);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.summary-ai-headline {
+  font-weight: 700;
+  font-size: clamp(19px, 4.5vw, 26px);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.summary-ai-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.summary-ai-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-ai-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.summary-ai-name .num {
+  font-size: 22px;
+}
+
+.summary-ai-verdict {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #d8d4cc;
+}
+
+.summary-ai-line {
+  font-style: italic;
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-dim);
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+@media (max-width: 700px) {
+  .summary-ai-grid {
+    grid-template-columns: 1fr;
+  }
+}

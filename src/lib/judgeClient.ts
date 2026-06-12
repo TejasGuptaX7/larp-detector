@@ -34,6 +34,43 @@ export async function callJudge(
   }
 }
 
+export type AnalysisSpeaker = {
+  name: string;
+  score: number;
+  verdict: string;
+  buzzwords: string[];
+  worstLine: string;
+};
+
+export type Analysis = {
+  headline: string;
+  speakers: AnalysisSpeaker[];
+};
+
+/** Post-session: send the whole labeled transcript to the Cursor SDK agent. */
+export async function callAnalyze(
+  lines: { name: string; text: string }[],
+  signal?: AbortSignal,
+): Promise<Analysis | null> {
+  try {
+    const res = await fetch(`${BASE}/api/analyze`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lines }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<Analysis>;
+    if (typeof data.headline !== "string") return null;
+    return {
+      headline: data.headline,
+      speakers: Array.isArray(data.speakers) ? data.speakers : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function judgeHealthy(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/api/health`);

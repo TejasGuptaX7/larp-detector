@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { verdict } from "../lib/score";
+import { callAnalyze, type Analysis } from "../lib/judgeClient";
 import type { Recording } from "../lib/recorder";
 
 export type Line = { t: number; speaker: number; name: string; text: string };
@@ -14,6 +16,28 @@ type Props = {
 export function Summary({ lines, rec, names, scores, onDone }: Props) {
   const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
   const colors = ["var(--low)", "var(--high)"];
+
+  const [ai, setAi] = useState<Analysis | null>(null);
+  const [aiState, setAiState] = useState<"loading" | "done" | "off">(
+    lines.length ? "loading" : "off",
+  );
+
+  // Cursor SDK agent reads the whole labeled conversation and rules on it.
+  useEffect(() => {
+    if (!lines.length) return;
+    const ac = new AbortController();
+    (async () => {
+      const out = await callAnalyze(
+        lines.map((l) => ({ name: l.name, text: l.text })),
+        ac.signal,
+      );
+      if (ac.signal.aborted) return;
+      setAi(out);
+      setAiState(out ? "done" : "off");
+    })();
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function downloadTranscript() {
     const body = lines
@@ -50,10 +74,45 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
       </div>
 
       <div className="summary-call">
-        {winner === -1
-          ? "Dead heat."
-          : `${names[winner]} was the bigger LARPer.`}
+        {winner === -1 ? "Dead heat." : `${names[winner]} was the bigger LARPer.`}
       </div>
+
+      {aiState !== "off" && (
+        <div className="summary-ai">
+          <div className="summary-ai-head">
+            <span>CURSOR AI VERDICT</span>
+            {aiState === "loading" && <span className="summary-ai-wait">analyzing…</span>}
+          </div>
+          {aiState === "done" && ai && (
+            <>
+              <div className="summary-ai-headline">{ai.headline}</div>
+              <div className="summary-ai-grid">
+                {ai.speakers.map((s, i) => (
+                  <div className="summary-ai-card" key={i}>
+                    <div className="summary-ai-name">
+                      <span>{s.name}</span>
+                      <span className="num">{s.score}%</span>
+                    </div>
+                    <div className="summary-ai-verdict">{s.verdict}</div>
+                    {s.worstLine && (
+                      <div className="summary-ai-line">“{s.worstLine}”</div>
+                    )}
+                    {s.buzzwords.length > 0 && (
+                      <div className="tags">
+                        {s.buzzwords.map((b) => (
+                          <span className="tag" key={b}>
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {rec && (
         <div className="summary-audio">
@@ -73,7 +132,10 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
 
       <div className="summary-tx">
         {lines.length === 0 ? (
-          <div className="summary-empty">No speech captured.</div>
+          <div className="summary-empty">
+            No speech captured. Speech-to-text needs Chrome with network access —
+            check the STT chip during the session.
+          </div>
         ) : (
           lines.map((l, i) => (
             <div className={`tx-line tx-${l.speaker}`} key={i}>
