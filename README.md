@@ -30,13 +30,14 @@ npm run start        # http://localhost:8787
 The frontend points at `http://localhost:8787` by default; override with
 `VITE_JUDGE_URL` when you deploy the server somewhere else.
 
-> **Transcription:** runs **fully in the browser** via [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
-> (an ONNX speech model loaded with transformers.js) — no API key, no Google
-> backend, and it works the same in Chrome, Brave, Arc, Firefox and Safari. The
-> first time you open the live dashboard it downloads the model (~100 MB, cached
-> after that); the status pill shows the progress. If the model can't load it
-> falls back to the Web Speech API where available. Must be served over **HTTPS**
-> (or localhost) for microphone access.
+> **Transcription:** for fast, accurate live captions, set an `ASSEMBLYAI_API_KEY`
+> on the judge server (free $50 credit, no card — [assemblyai.com](https://www.assemblyai.com)).
+> The browser then streams to AssemblyAI's realtime API using a short-lived token
+> the server mints, so the key never reaches the client. **Without a key** it falls
+> back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
+> (no key, cross-browser, but slower with a ~100 MB one-time model download), then
+> to the Web Speech API. Speaker attribution is always done locally. Must be served
+> over **HTTPS** (or localhost) for microphone access.
 
 ## How the speaker detection works
 

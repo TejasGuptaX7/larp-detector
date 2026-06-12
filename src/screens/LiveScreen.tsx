@@ -166,7 +166,10 @@ export function LiveScreen({ onStop }: Props) {
           const l1 = scoreL1(text);
           const blended =
             lane.l2 != null ? Math.round(l1.score * 0.45 + lane.l2 * 0.55) : l1.score;
-          const next = lane.score + (blended - lane.score) * 0.25;
+          // Ratchet: once you LARP, you LARP. The score only ever eases UP toward
+          // the highest reading seen — it never decays back down.
+          const peak = Math.max(lane.score, blended);
+          const next = lane.score + (peak - lane.score) * 0.3;
           const tags = mergeTags(l1.tags, lane.tags);
           return { ...lane, score: next, tags, words: l1.words };
         }),
