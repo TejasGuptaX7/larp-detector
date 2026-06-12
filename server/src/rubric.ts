@@ -59,6 +59,71 @@ export type JudgeResult = {
   reason: string;
 };
 
+// ---------- full-conversation analysis (post-session, Cursor SDK) ----------
+
+export type AnalysisSpeaker = {
+  name: string;
+  score: number;
+  verdict: string;
+  buzzwords: string[];
+  worstLine: string;
+};
+
+export type AnalysisResult = {
+  headline: string;
+  speakers: AnalysisSpeaker[];
+};
+
+export function buildAnalysisPrompt(
+  lines: { name: string; text: string }[],
+): string {
+  const convo = lines
+    .map((l) => `${l.name}: ${l.text}`)
+    .join("\n")
+    .slice(-6000);
+
+  return `${JUDGE_RUBRIC}
+
+You are now grading a FULL recorded conversation between two people. Each line
+is labeled with the speaker's name. Judge each speaker INDEPENDENTLY on their
+own lines only.
+
+CONVERSATION:
+"""
+${convo || "(empty)"}
+"""
+
+Return ONLY minified JSON, no prose, no code fences:
+{"headline":"<<=14 words, punchy verdict on the whole convo>","speakers":[{"name":"<speaker name>","score":<int 0-100>,"verdict":"<<=12 words>","buzzwords":[<up to 5 lowercase strings>],"worstLine":"<their single most LARP line, verbatim or close>"}]}
+
+JSON:`;
+}
+
+export function parseAnalysis(raw: string): AnalysisResult {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return { headline: "no output", speakers: [] };
+  try {
+    const obj = JSON.parse(match[0]);
+    const speakers = Array.isArray(obj.speakers)
+      ? obj.speakers.slice(0, 2).map((s: Record<string, unknown>) => ({
+          name: String(s.name ?? "?").slice(0, 24),
+          score: Math.max(0, Math.min(100, Math.round(Number(s.score) || 0))),
+          verdict: String(s.verdict ?? "").slice(0, 90),
+          buzzwords: Array.isArray(s.buzzwords)
+            ? s.buzzwords.slice(0, 5).map((b: unknown) => String(b))
+            : [],
+          worstLine: String(s.worstLine ?? "").slice(0, 200),
+        }))
+      : [];
+    return {
+      headline: String(obj.headline ?? "").slice(0, 120),
+      speakers,
+    };
+  } catch {
+    return { headline: "parse error", speakers: [] };
+  }
+}
+
 export function parseJudge(raw: string): JudgeResult {
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return { score: 0, buzzwords: [], reason: "no output" };
