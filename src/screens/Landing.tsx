@@ -56,13 +56,6 @@ export function Landing({ onLaunch }: Props) {
         .from(".hero-ctas", { y: 24, autoAlpha: 0, duration: 0.7 }, "-=0.5")
         .from(".hero-meta", { autoAlpha: 0, duration: 0.8 }, "-=0.4");
 
-      // forensic scanline sweeping the hero forever
-      gsap.fromTo(
-        ".hero-scan",
-        { top: "-4%" },
-        { top: "104%", duration: 5.5, ease: "none", repeat: -1 },
-      );
-
       // blinking REC dot
       gsap.to(".hero-rec i", {
         opacity: 0.15,
@@ -330,7 +323,6 @@ export function Landing({ onLaunch }: Props) {
 
       {/* ---------- hero ---------- */}
       <header className="hero">
-        <div className="hero-scan" />
         <p className="hero-label">LARP DETECTION SYSTEM — V1.0</p>
         <h1>
           <span className="mask">

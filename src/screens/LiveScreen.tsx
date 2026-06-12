@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Waveform } from "../components/Waveform";
 import { Gauge } from "../components/Gauge";
 import { verdict } from "../lib/score";
@@ -6,8 +6,8 @@ import { scoreL1 } from "../lib/larp";
 import { startStt, sttSupported, type SttHandle, type SttStatus } from "../lib/stt";
 import { callJudge } from "../lib/judgeClient";
 import { getEngine, getMic, getProfiles, getStream } from "../lib/session";
-import { SpeakerGateway } from "../lib/gateway";
-import type { VoiceEngine } from "../lib/voice";
+import { SpeakerGateway, type LabeledLine } from "../lib/gateway";
+import { describeVoice, type VoiceEngine } from "../lib/voice";
 import { ConvoRecorder, type Recording } from "../lib/recorder";
 import { Summary } from "./Summary.tsx";
 import type { Line } from "./Summary.tsx";
@@ -20,31 +20,48 @@ type Lane = {
   score: number;
   tags: string[];
   words: number;
-  lastLine: string;
   l2: number | null;
+};
+
+type Detect = {
+  active: 0 | 1 | null;
+  presence: [number, number];
+  conf: number;
+  pitch: number;
 };
 
 const WINDOW_MS = 30_000;
 const L2_INTERVAL_MS = 12_000;
 const FRAME_MS = 60;
+const COLORS = ["var(--p1)", "var(--p2)"];
 
 export function LiveScreen({ onStop }: Props) {
   const profiles = getProfiles();
   const names: [string, string] = [
-    profiles[0]?.name || "A",
-    profiles[1]?.name || "B",
+    profiles[0]?.name || "Person 1",
+    profiles[1]?.name || "Person 2",
+  ];
+  const subtitles: [string, string] = [
+    profiles[0] ? describeVoice(profiles[0]).summary : "",
+    profiles[1] ? describeVoice(profiles[1]).summary : "",
   ];
 
   const [lanes, setLanes] = useState<Lane[]>(() => [
-    { name: names[0], color: "var(--low)", score: 0, tags: [], words: 0, lastLine: "", l2: null },
-    { name: names[1], color: "var(--high)", score: 0, tags: [], words: 0, lastLine: "", l2: null },
+    { name: names[0], color: COLORS[0], score: 0, tags: [], words: 0, l2: null },
+    { name: names[1], color: COLORS[1], score: 0, tags: [], words: 0, l2: null },
   ]);
   const [elapsed, setElapsed] = useState(0);
   const [sttStatus, setSttStatus] = useState<SttStatus>("off");
   const [sttDetail, setSttDetail] = useState("");
   const [judgeOn, setJudgeOn] = useState(false);
   const [caption, setCaption] = useState("");
-  const [active, setActive] = useState<number | null>(null);
+  const [detect, setDetect] = useState<Detect>({
+    active: null,
+    presence: [0, 0],
+    conf: 0.5,
+    pitch: 0,
+  });
+  const [feed, setFeed] = useState<LabeledLine[]>([]);
   const [summary, setSummary] = useState<{
     lines: Line[];
     rec: Recording | null;
@@ -55,6 +72,10 @@ export function LiveScreen({ onStop }: Props) {
   const engine = useRef<VoiceEngine | null>(getEngine());
   const stt = useRef<SttHandle | null>(null);
   const recorder = useRef<ConvoRecorder | null>(null);
+  const feedEnd = useRef<HTMLDivElement>(null);
+  // Set once the session ends: halts the per-frame work so we don't keep running
+  // the voice engine behind the summary screen (LiveScreen stays mounted).
+  const ended = useRef(false);
   const gateway = useRef<SpeakerGateway | null>(
     profiles.length >= 2 ? new SpeakerGateway(profiles, names) : null,
   );
@@ -83,8 +104,15 @@ export function LiveScreen({ onStop }: Props) {
     const gw = gateway.current;
     if (!e || !gw) return;
     const id = setInterval(() => {
-      const who = gw.tick(e.frame());
-      setActive(who);
+      if (ended.current) return;
+      gw.tick(e.frame());
+      const s = gw.liveState();
+      setDetect({
+        active: s.active,
+        presence: s.presence,
+        conf: s.conf,
+        pitch: s.pitch,
+      });
     }, FRAME_MS);
     return () => clearInterval(id);
   }, []);
@@ -105,11 +133,7 @@ export function LiveScreen({ onStop }: Props) {
         if (!text) return;
         setCaption("");
         const line = gw.routeFinal(text);
-        setLanes((prev) =>
-          prev.map((l, i) =>
-            i === line.speaker ? { ...l, lastLine: line.text } : l,
-          ),
-        );
+        setFeed((prev) => [...prev.slice(-60), line]);
       },
       onStatus: (status, detail) => {
         setSttStatus(status);
@@ -129,11 +153,17 @@ export function LiveScreen({ onStop }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  // keep the transcript feed scrolled to the newest line
+  useEffect(() => {
+    feedEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [feed, caption]);
+
   // Layer 1 — score each speaker lane independently.
   useEffect(() => {
     const gw = gateway.current;
     if (!gw) return;
     const id = setInterval(() => {
+      if (ended.current) return;
       setLanes((prev) =>
         prev.map((lane, i) => {
           const text = gw.windowText(i as 0 | 1, WINDOW_MS);
@@ -160,10 +190,10 @@ export function LiveScreen({ onStop }: Props) {
     async function tick(i: 0 | 1) {
       while (alive) {
         await sleep(L2_INTERVAL_MS);
-        if (!alive) break;
+        if (!alive || ended.current) break;
         const text = gate.windowText(i, WINDOW_MS);
         if (text.split(/\s+/).filter(Boolean).length < 6) continue;
-        const out = await callJudge(i === 0 ? "A" : "B", text, ac.signal);
+        const out = await callJudge(i === 0 ? names[0] : names[1], text, ac.signal);
         if (!alive || !out) continue;
         setJudgeOn(true);
         setLanes((prev) =>
@@ -182,9 +212,11 @@ export function LiveScreen({ onStop }: Props) {
       alive = false;
       ac.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleStop() {
+    ended.current = true;
     stt.current?.stop();
     const rec = recorder.current ? await recorder.current.stop() : null;
     const log = gateway.current?.getLog() ?? [];
@@ -214,84 +246,157 @@ export function LiveScreen({ onStop }: Props) {
 
   const leader =
     lanes[0].score === lanes[1].score ? null : lanes[0].score > lanes[1].score ? 0 : 1;
-
-  const sttChip =
-    sttStatus === "listening"
-      ? "HEARING"
-      : sttStatus === "restarting"
-        ? "RECONNECTING"
-        : sttStatus === "error"
-          ? `STT ${sttDetail || "ERROR"}`
-          : "STT OFF";
+  const live = sttStatus === "listening" || sttStatus === "restarting";
 
   return (
-    <div className="live">
-      <div className="live-top">
-        <div className="rec">
+    <div className="dash">
+      {/* ---------- top bar ---------- */}
+      <header className="dash-top">
+        <div className="dash-brand">
           <span className="rec-dot" />
-          <span>LIVE</span>
+          <span className="dash-brand-name">Stop&nbsp;Larping</span>
+          <span className="dash-clock">{fmt(elapsed)}</span>
         </div>
-        <div className={`stt-chip stt-${sttStatus}`}>{sttChip}</div>
-        <div className="clock">{fmt(elapsed)}</div>
-        <button className="btn-stop" onClick={handleStop}>
-          STOP
-        </button>
-      </div>
 
-      <div className={`caption${caption ? " caption-on" : ""}`}>
-        {caption || "listening for speech…"}
-      </div>
+        <DetectBar detect={detect} names={names} />
 
-      <div className="arena">
-        {lanes.map((lane, i) => (
-          <div
-            className={`lane${leader === i ? " lane-lead" : ""}${active === i ? " lane-live" : ""}`}
-            key={i}
-          >
-            <div className="lane-head">
-              <div className="lane-name">{lane.name}</div>
-              <div className={`lane-tag${active === i ? " on" : ""}`}>
-                {active === i ? "SPEAKING" : ""}
+        <div className="dash-top-right">
+          <SttChip status={sttStatus} detail={sttDetail} />
+          <button className="btn-stop" onClick={handleStop}>
+            End&nbsp;session
+          </button>
+        </div>
+      </header>
+
+      {/* ---------- two speakers ---------- */}
+      <div className="dash-main">
+        {lanes.map((lane, i) => {
+          const speaking = detect.active === i;
+          return (
+            <section
+              className={`sp${speaking ? " sp-speaking" : ""}${leader === i ? " sp-leader" : ""}`}
+              key={i}
+              style={{ "--sp": lane.color } as CSSProperties}
+            >
+              <div className="sp-head">
+                <div className="sp-id">
+                  <span className="sp-name">{lane.name}</span>
+                  <span className="sp-sub">{subtitles[i]}</span>
+                </div>
+                <span className={`sp-live${speaking ? " on" : ""}`}>
+                  {speaking ? "Speaking" : ""}
+                </span>
               </div>
-            </div>
-            <Gauge score={lane.score} />
-            <div className="verdict">{verdict(lane.score)}</div>
-            <Waveform analyser={analyser.current} color={lane.color} muted={active !== i} />
-            <div className="line">{lane.lastLine || "…"}</div>
-            <div className="tags">
-              {lane.tags.length === 0 ? (
-                <span className="tag tag-empty">clean</span>
-              ) : (
-                lane.tags.map((t) => (
-                  <span className="tag" key={t}>
-                    {t}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-        ))}
+
+              <Gauge score={lane.score} />
+              <div className="sp-verdict">{verdict(lane.score)}</div>
+
+              <Waveform
+                analyser={analyser.current}
+                color={lane.color}
+                muted={!speaking}
+              />
+
+              <div className="sp-tags">
+                {lane.tags.length === 0 ? (
+                  <span className="tag tag-clean">no tells yet</span>
+                ) : (
+                  lane.tags.map((t) => (
+                    <span className="tag" key={t}>
+                      {t}
+                    </span>
+                  ))
+                )}
+              </div>
+
+              <div className="sp-foot">
+                <span className="sp-foot-k">Words</span>
+                <span className="sp-foot-v">{lane.words}</span>
+                {leader === i && lane.score > 0 && (
+                  <span className="sp-foot-lead">Bigger LARP</span>
+                )}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
-      <div className="live-foot">
-        <div className="stat">
-          <span className="stat-k">WORDS {lanes[0].name}</span>
-          <span className="stat-v">{lanes[0].words}</span>
+      {/* ---------- transcript feed ---------- */}
+      <section className="feed">
+        <div className="feed-scroll">
+          {feed.length === 0 && !caption ? (
+            <div className="feed-empty">
+              {live
+                ? "Listening… start talking and lines will appear here, tagged by speaker."
+                : "Speech-to-text needs Chrome. Check the status pill above."}
+            </div>
+          ) : (
+            feed.map((l, i) => (
+              <div className={`feed-line feed-${l.speaker}`} key={i}>
+                <span className="feed-name">{l.name}</span>
+                <span className="feed-text">{l.text}</span>
+              </div>
+            ))
+          )}
+          {caption && (
+            <div className="feed-line feed-interim">
+              <span className="feed-name">…</span>
+              <span className="feed-text">{caption}</span>
+            </div>
+          )}
+          <div ref={feedEnd} />
         </div>
-        <div className="stat">
-          <span className="stat-k">GATEWAY</span>
-          <span className="stat-v">
-            {sttStatus === "listening" || sttStatus === "restarting" ? "VOICE→2" : "OFF"}
-            {judgeOn ? "+AI" : ""}
-          </span>
+        <div className="feed-foot">
+          <span>{judgeOn ? "due diligence: live" : "vibe check only"}</span>
+          <span>{feed.length} lines</span>
         </div>
-        <div className="stat">
-          <span className="stat-k">WORDS {lanes[1].name}</span>
-          <span className="stat-v">{lanes[1].words}</span>
-        </div>
-      </div>
+      </section>
     </div>
   );
+}
+
+/** Top-center "who is speaking" + confidence indicator. */
+function DetectBar({ detect, names }: { detect: Detect; names: [string, string] }) {
+  const a = detect.active;
+  const label = a === null ? "Listening" : `${names[a]} speaking`;
+  const p1 = Math.max(0, Math.min(1, detect.presence[0]));
+  const p2 = Math.max(0, Math.min(1, detect.presence[1]));
+  return (
+    <div className={`detect${a !== null ? " detect-on" : ""}`}>
+      <span
+        className="detect-dot"
+        style={{
+          background: a === null ? "var(--fg-dim)" : a === 0 ? "var(--p1)" : "var(--p2)",
+        }}
+      />
+      <span className="detect-label">{label}</span>
+      <div className="detect-meter">
+        <div
+          className="detect-meter-fill detect-p1"
+          style={{ width: `${p1 * 50}%` }}
+        />
+        <div
+          className="detect-meter-fill detect-p2"
+          style={{ width: `${p2 * 50}%` }}
+        />
+      </div>
+      {a !== null && (
+        <span className="detect-conf">{Math.round(detect.conf * 100)}%</span>
+      )}
+    </div>
+  );
+}
+
+function SttChip({ status, detail }: { status: SttStatus; detail: string }) {
+  const label =
+    status === "listening"
+      ? "Hearing you"
+      : status === "restarting"
+        ? "Reconnecting"
+        : status === "error"
+          ? detail || "STT error"
+          : "STT off";
+  return <span className={`stt-chip stt-${status}`}>{label}</span>;
 }
 
 function mergeTags(a: string[], b: string[]): string[] {
