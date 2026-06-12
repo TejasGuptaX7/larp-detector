@@ -22,14 +22,24 @@ export async function listInputs(): Promise<MediaDeviceInfo[]> {
   return all.filter((d) => d.kind === "audioinput");
 }
 
-/** Open one microphone (optionally a specific device) and expose an analyser. */
+/**
+ * Open one microphone (optionally a specific device) and expose an analyser.
+ *
+ * CRITICAL for speaker recognition: we request RAW audio. The browser's
+ * echoCancellation / noiseSuppression / autoGainControl are great for calls but
+ * catastrophic for telling two voices apart — AGC normalizes loudness (erasing
+ * level cues), and noiseSuppression reshapes the very spectral envelope that
+ * MFCC fingerprints rely on. With them on, both speakers collapse toward the
+ * same "cleaned" timbre. We turn them all off so each voice keeps its identity.
+ */
 export async function openMic(deviceId?: string): Promise<MicHandle> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       deviceId: deviceId ? { exact: deviceId } : undefined,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: 1,
     },
     video: false,
   });

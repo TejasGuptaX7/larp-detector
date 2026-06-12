@@ -152,14 +152,6 @@ html.lp-mode .app {
     ),
     var(--lp-bg);
 }
-.hero-scan {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(255, 59, 59, 0.5), transparent);
-  pointer-events: none;
-}
 .hero-label {
   font-family: var(--font-mono);
   font-size: 13px;

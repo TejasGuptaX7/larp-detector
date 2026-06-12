@@ -15,7 +15,7 @@ type Props = {
 
 export function Summary({ lines, rec, names, scores, onDone }: Props) {
   const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
-  const colors = ["var(--low)", "var(--high)"];
+  const colors = ["var(--p1)", "var(--p2)"];
 
   const [ai, setAi] = useState<Analysis | null>(null);
   const [aiState, setAiState] = useState<"loading" | "done" | "off">(
@@ -80,8 +80,10 @@ export function Summary({ lines, rec, names, scores, onDone }: Props) {
       {aiState !== "off" && (
         <div className="summary-ai">
           <div className="summary-ai-head">
-            <span>CURSOR AI VERDICT</span>
-            {aiState === "loading" && <span className="summary-ai-wait">analyzing…</span>}
+            <span>Due Diligence</span>
+            {aiState === "loading" && (
+              <span className="summary-ai-wait">running diligence…</span>
+            )}
           </div>
           {aiState === "done" && ai && (
             <>
