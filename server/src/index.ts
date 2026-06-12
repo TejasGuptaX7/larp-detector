@@ -27,6 +27,33 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, sdk: "@cursor/sdk", model: process.env.LARP_MODEL ?? "auto" });
 });
 
+/**
+ * Mint a short-lived AssemblyAI streaming token so the browser can open the
+ * realtime WebSocket directly — the long-lived API key never leaves the server.
+ * Returns 501 if no key is set, so the client falls back to in-browser STT.
+ */
+app.get("/api/aai-token", async (_req, res) => {
+  const key = process.env.ASSEMBLYAI_API_KEY;
+  if (!key) return res.status(501).json({ error: "assemblyai_not_configured" });
+  try {
+    const r = await fetch(
+      "https://streaming.assemblyai.com/v3/token?expires_in_seconds=300",
+      { headers: { Authorization: key } },
+    );
+    if (!r.ok) {
+      return res.status(502).json({ error: "token_failed", status: r.status });
+    }
+    const data = (await r.json()) as { token?: string };
+    if (!data.token) return res.status(502).json({ error: "no_token" });
+    res.json({ token: data.token });
+  } catch (err) {
+    res.status(500).json({
+      error: "token_error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 app.post("/api/analyze", async (req, res) => {
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const clean = lines
