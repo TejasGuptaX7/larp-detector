@@ -62,6 +62,9 @@ export class SpeakerGateway {
   private pitch = 0;
   private challenger: SpeakerIdx | null = null;
   private challengerFrames = 0;
+  // Diarization-label -> enrolled-person mapping (provider labels like "A"/"B").
+  private labelMap = new Map<string, SpeakerIdx>();
+  private labelVotes = new Map<string, [number, number]>();
 
   constructor(profiles: VoiceProfile[], names: [string, string]) {
     this.profiles = profiles;
@@ -141,10 +144,31 @@ export class SpeakerGateway {
     };
   }
 
-  /** Route a finalized STT phrase into the correct speaker lane. */
-  routeFinal(text: string): LabeledLine {
+  /**
+   * Route a finalized STT phrase into the correct speaker lane.
+   *
+   * When the STT provider supplies a diarization label ("A"/"B" from
+   * AssemblyAI's ML model), THAT decides turn separation — it is far more
+   * reliable than our local DSP at telling two similar voices apart. The DSP's
+   * job shrinks to mapping each anonymous label onto an enrolled person, by
+   * accumulating its per-turn votes (with the constraint that two labels must
+   * map to different people). Without a label we fall back to pure DSP.
+   */
+  routeFinal(text: string, extLabel?: string): LabeledLine {
     const trimmed = text.trim();
-    const { speaker, conf } = this.pickSpeaker();
+    const dsp = this.pickSpeaker();
+    let speaker = dsp.speaker;
+    let conf = dsp.conf;
+
+    if (extLabel) {
+      // Accumulate DSP evidence for this label.
+      const votes = this.labelVotes.get(extLabel) ?? [0, 0];
+      votes[dsp.speaker] += 0.5 + dsp.conf; // confident votes weigh more
+      this.labelVotes.set(extLabel, votes);
+      speaker = this.mapLabel(extLabel);
+      conf = Math.max(0.5, Math.min(1, Math.abs(votes[0] - votes[1]) / (votes[0] + votes[1] || 1)));
+    }
+
     const line: LabeledLine = {
       t: Date.now(),
       speaker,
@@ -156,6 +180,37 @@ export class SpeakerGateway {
     this.log.push(line);
     this.lastFinal = line.t;
     return line;
+  }
+
+  /** Resolve a diarization label to an enrolled speaker index. */
+  private mapLabel(label: string): SpeakerIdx {
+    const assigned = this.labelMap.get(label);
+    const votes = this.labelVotes.get(label) ?? [0, 0];
+    const lean: SpeakerIdx = votes[1] > votes[0] ? 1 : 0;
+    const total = votes[0] + votes[1];
+    const margin = Math.abs(votes[0] - votes[1]);
+
+    if (assigned === undefined) {
+      // First time we see this label. If the other label is already pinned,
+      // take the opposite seat (two labels = two different people). Otherwise
+      // follow the DSP's lean.
+      const otherAssigned = [...this.labelMap.entries()].find(([l]) => l !== label);
+      const idx: SpeakerIdx = otherAssigned
+        ? ((1 - otherAssigned[1]) as SpeakerIdx)
+        : lean;
+      this.labelMap.set(label, idx);
+      return idx;
+    }
+
+    // Self-correction: if the accumulated DSP evidence clearly contradicts the
+    // current assignment, swap the whole mapping (both labels flip together).
+    if (assigned !== lean && total >= 5 && margin / total > 0.5) {
+      for (const [l, idx] of this.labelMap) {
+        this.labelMap.set(l, (1 - idx) as SpeakerIdx);
+      }
+      return this.labelMap.get(label)!;
+    }
+    return assigned;
   }
 
   getLane(speaker: SpeakerIdx): readonly RoutedPhrase[] {

@@ -5,6 +5,7 @@ import { LarpPostCard } from "../components/LarpPostCard";
 import { InterviewScene } from "../components/InterviewScene";
 import { LEFT_RAIL, RIGHT_RAIL } from "../lib/larpPosts";
 import "../landing.css";
+import { usePostHog } from "@posthog/react";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -37,6 +38,12 @@ const TICKER_PHRASES = [
 
 export function Landing({ onLaunch }: Props) {
   const root = useRef<HTMLDivElement>(null);
+  const posthog = usePostHog();
+
+  function handleLaunch() {
+    posthog?.capture("detector_launched");
+    onLaunch();
+  }
 
   useLayoutEffect(() => {
     document.documentElement.classList.add("lp-mode");
@@ -316,7 +323,7 @@ export function Landing({ onLaunch }: Props) {
         <span className="lp-mark">
           STOP&nbsp;LARPING<i className="lp-mark-dot" />
         </span>
-        <button className="lp-nav-btn" onClick={onLaunch}>
+        <button className="lp-nav-btn" onClick={handleLaunch}>
           RUN DETECTOR
         </button>
       </nav>
@@ -337,7 +344,7 @@ export function Landing({ onLaunch }: Props) {
           founders, candidates, your timeline — and get a verdict.
         </p>
         <div className="hero-ctas">
-          <button className="btn btn--primary" onClick={onLaunch}>
+          <button className="btn btn--primary" onClick={handleLaunch}>
             RUN THE DETECTOR
           </button>
           <a className="btn btn--ghost" href="#evidence">
@@ -448,7 +455,7 @@ export function Landing({ onLaunch }: Props) {
           <span className="cta-word cta-word--2">LARPING<i>.</i></span>
         </h2>
         <div className="cta-action">
-          <button className="btn btn--primary btn--xl" onClick={onLaunch}>
+          <button className="btn btn--primary btn--xl" onClick={handleLaunch}>
             RUN THE DETECTOR
           </button>
           <p>Free to run. Costly to your friends’ egos.</p>

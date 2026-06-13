@@ -1,7 +1,18 @@
 // Client for the Layer 2 judge (Cursor SDK, Agent.prompt) running in /server.
 // Best-effort: if the server is down, callers fall back to Layer 1 only.
 
+import posthog from "posthog-js";
+
 const BASE = import.meta.env.VITE_JUDGE_URL ?? "http://localhost:8787";
+
+function phHeaders(): Record<string, string> {
+  const distinctId = posthog.get_distinct_id?.();
+  const sessionId = posthog.get_session_id?.();
+  const h: Record<string, string> = {};
+  if (distinctId) h["X-POSTHOG-DISTINCT-ID"] = distinctId;
+  if (sessionId) h["X-POSTHOG-SESSION-ID"] = sessionId;
+  return h;
+}
 
 export type JudgeResult = {
   score: number;
@@ -17,7 +28,7 @@ export async function callJudge(
   try {
     const res = await fetch(`${BASE}/api/judge`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...phHeaders() },
       body: JSON.stringify({ speaker, transcript }),
       signal,
     });
@@ -55,7 +66,7 @@ export async function callAnalyze(
   try {
     const res = await fetch(`${BASE}/api/analyze`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...phHeaders() },
       body: JSON.stringify({ lines }),
       signal,
     });

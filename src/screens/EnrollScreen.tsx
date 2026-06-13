@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ensureMic, setProfiles } from "../lib/session";
 import { ENROLL_LINES } from "../lib/enrollLines";
+import { usePostHog } from "@posthog/react";
 import {
   buildProfile,
   describeVoice,
@@ -45,6 +46,7 @@ export function EnrollScreen({ onReady }: Props) {
   const [micError, setMicError] = useState(false);
 
   const engine = useRef<VoiceEngine | null>(null);
+  const posthog = usePostHog();
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +82,7 @@ export function EnrollScreen({ onReady }: Props) {
     setRecording(idx);
     setProgress(0);
     setHint("Read your line — keep going until the ring fills");
+    posthog?.capture("voice_enrollment_started", { seat: idx + 1 });
 
     const frames: VoiceFrame[] = [];
     let voiced = 0;
@@ -116,6 +119,11 @@ export function EnrollScreen({ onReady }: Props) {
             return next;
           });
           setHint("Too quiet — try again, closer to the mic");
+          posthog?.capture("voice_enrollment_failed", {
+            seat: idx + 1,
+            voiced_frames: voiced,
+            elapsed_ms: Date.now() - start,
+          });
           return;
         }
 
@@ -128,6 +136,10 @@ export function EnrollScreen({ onReady }: Props) {
           );
           profile.voicedSec = (voiced * FRAME_MS) / 1000;
           next[idx] = { ...slot, profile };
+          posthog?.capture("voice_enrollment_completed", {
+            seat: idx + 1,
+            voiced_sec: profile.voicedSec,
+          });
           return next;
         });
       }
@@ -149,6 +161,7 @@ export function EnrollScreen({ onReady }: Props) {
       .map((s) => s.profile)
       .filter(Boolean) as VoiceProfile[];
     if (profiles.length < 2) return;
+    posthog?.capture("session_started");
     setProfiles(profiles);
     onReady();
   }
@@ -331,8 +344,8 @@ function VoiceProfileView({
           <span className="vp-stat-v">{d.rangeLabel}</span>
         </div>
         <div className="vp-stat">
-          <span className="vp-stat-k">Tone</span>
-          <span className="vp-stat-v">{d.tone}</span>
+          <span className="vp-stat-k">Brightness</span>
+          <span className="vp-stat-v">{d.brightLabel}</span>
         </div>
         <div className="vp-stat">
           <span className="vp-stat-k">Captured</span>
