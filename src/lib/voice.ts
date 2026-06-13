@@ -454,14 +454,17 @@ export function matchWindow(
 // ---------- human-readable descriptors ----------
 
 export type VoiceDescriptor = {
-  register: string; // e.g. "Deep", "Low", "Mid", "High"
-  tone: string; // e.g. "Warm", "Balanced", "Bright"
-  summary: string; // one-line: "Deep · Warm"
+  register: string; // pitch-derived word: "Deep", "Low", "Mid", "High"
+  summary: string; // one-line, measurement-first: "122 Hz · Low"
   pitchLabel: string; // "112 Hz" or "—"
   rangeLabel: string; // "98–134 Hz"
+  brightLabel: string; // spectral centroid, e.g. "1.6 kHz"
 };
 
-/** Turn a profile's raw numbers into a plain-language voice description. */
+/**
+ * Turn a profile's raw numbers into a measurement-first description. The words
+ * are derived strictly from the measured pitch — no vibe adjectives.
+ */
 export function describeVoice(p: VoiceProfile): VoiceDescriptor {
   const hz = p.pitchMean;
   let register = "Mid";
@@ -469,27 +472,22 @@ export function describeVoice(p: VoiceProfile): VoiceDescriptor {
   else if (hz < 115) register = "Deep";
   else if (hz < 150) register = "Low";
   else if (hz < 185) register = "Mid";
-  else if (hz < 230) register = "High";
-  else register = "Bright";
-
-  // centroidHz roughly 800–1400 = warm, 1400–2200 = balanced, >2200 = bright.
-  const c = p.centroidHz;
-  let tone = "Balanced";
-  if (c < 1400) tone = "Warm";
-  else if (c > 2200) tone = "Crisp";
+  else register = "High";
 
   const pitchLabel = hz > 0 ? `${Math.round(hz)} Hz` : "—";
   const rangeLabel =
     p.pitchMin > 0 && p.pitchMax > 0
       ? `${Math.round(p.pitchMin)}–${Math.round(p.pitchMax)} Hz`
       : "—";
+  const brightLabel =
+    p.centroidHz > 0 ? `${(p.centroidHz / 1000).toFixed(1)} kHz` : "—";
 
   return {
     register,
-    tone,
-    summary: hz > 0 ? `${register} · ${tone}` : tone,
+    summary: hz > 0 ? `${pitchLabel} · ${register}` : "no pitch captured",
     pitchLabel,
     rangeLabel,
+    brightLabel,
   };
 }
 

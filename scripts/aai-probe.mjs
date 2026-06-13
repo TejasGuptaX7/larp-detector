@@ -74,7 +74,7 @@ const { token } = await tokRes.json();
 console.log("[probe] token OK — connecting…");
 
 const ws = new WebSocket(
-  `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&token=${encodeURIComponent(token)}`,
+  `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&speaker_labels=true&max_speakers=2&token=${encodeURIComponent(token)}`,
 );
 
 let finals = 0;
@@ -112,7 +112,8 @@ ws.on("message", (raw) => {
   if (m.type === "Begin") console.log(`[probe] session began (id ${m.id})`);
   else if (m.type === "Turn") {
     const tag = m.end_of_turn ? (m.turn_is_formatted ? "FINAL(fmt)" : "FINAL(raw)") : "partial   ";
-    console.log(`[probe] ${tag} | ${m.transcript}`);
+    const spk = m.speaker_label ? ` [spk ${m.speaker_label}]` : "";
+    console.log(`[probe] ${tag}${spk} | ${m.transcript}`);
     if (m.end_of_turn && m.transcript?.trim()) finals++;
   } else if (m.type === "Termination") {
     console.log(`[probe] terminated: ${m.audio_duration_seconds ?? "?"}s processed`);

@@ -39,6 +39,7 @@ type TurnMsg = {
   transcript?: string;
   end_of_turn?: boolean;
   turn_is_formatted?: boolean;
+  speaker_label?: string; // "A" | "B" | "UNKNOWN" when speaker_labels=true
 };
 
 export function startAssemblyAI(
@@ -76,7 +77,7 @@ export function startAssemblyAI(
   let pendingOrder: number | null = null;
   let pendingTimer: number | null = null;
 
-  function finalize(order: number, text: string) {
+  function finalize(order: number, text: string, speaker?: string) {
     if (finalized.has(order)) return;
     finalized.add(order);
     if (finalized.size > 500) {
@@ -86,7 +87,7 @@ export function startAssemblyAI(
     }
     clearPending();
     h.onInterim("");
-    if (text) h.onFinal(text);
+    if (text) h.onFinal(text, speaker);
   }
 
   function clearPending() {
@@ -100,13 +101,17 @@ export function startAssemblyAI(
   function handleTurn(m: TurnMsg) {
     const text = (m.transcript || "").trim();
     const order = m.turn_order ?? -1;
+    const speaker =
+      m.speaker_label && m.speaker_label !== "UNKNOWN"
+        ? m.speaker_label
+        : undefined;
     if (!m.end_of_turn) {
       // live partial — this is the word-by-word caption
       if (!finalized.has(order)) h.onInterim(text);
       return;
     }
     if (m.turn_is_formatted) {
-      finalize(order, text);
+      finalize(order, text, speaker);
       return;
     }
     // Unformatted end-of-turn: give the formatted upgrade a short grace window,
@@ -116,7 +121,7 @@ export function startAssemblyAI(
     pendingOrder = order;
     pendingTimer = window.setTimeout(() => {
       pendingTimer = null;
-      if (pendingOrder !== null) finalize(pendingOrder, text);
+      if (pendingOrder !== null) finalize(pendingOrder, text, speaker);
     }, FORMAT_GRACE_MS);
   }
 
@@ -140,6 +145,7 @@ export function startAssemblyAI(
 
     const url =
       `${WS_BASE}?sample_rate=${TARGET_SR}&encoding=pcm_s16le&format_turns=true` +
+      `&speaker_labels=true&max_speakers=2` + // ML diarization: who is talking
       `&token=${encodeURIComponent(token)}`;
     let sock: WebSocket;
     try {

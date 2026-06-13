@@ -127,10 +127,10 @@ export function LiveScreen({ onStop }: Props) {
 
     const h = startTranscription({
       onInterim: (text) => setCaption(text),
-      onFinal: (text) => {
+      onFinal: (text, speakerLabel) => {
         if (!text) return;
         setCaption("");
-        const line = gw.routeFinal(text);
+        const line = gw.routeFinal(text, speakerLabel);
         setFeed((prev) => [...prev.slice(-60), line]);
       },
       onStatus: (status, detail) => {

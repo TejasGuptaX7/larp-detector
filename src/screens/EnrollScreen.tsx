@@ -344,8 +344,8 @@ function VoiceProfileView({
           <span className="vp-stat-v">{d.rangeLabel}</span>
         </div>
         <div className="vp-stat">
-          <span className="vp-stat-k">Tone</span>
-          <span className="vp-stat-v">{d.tone}</span>
+          <span className="vp-stat-k">Brightness</span>
+          <span className="vp-stat-v">{d.brightLabel}</span>
         </div>
         <div className="vp-stat">
           <span className="vp-stat-k">Captured</span>

@@ -44,7 +44,8 @@ const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture"]);
 
 export type SttHandlers = {
   onInterim: (text: string) => void;
-  onFinal: (text: string) => void;
+  /** speakerLabel is the STT provider's diarization tag ("A"/"B") when known. */
+  onFinal: (text: string, speakerLabel?: string) => void;
   onStatus?: (status: SttStatus, detail?: string) => void;
   onError?: (err: string) => void;
 };

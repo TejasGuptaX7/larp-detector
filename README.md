@@ -44,6 +44,11 @@ The frontend points at `http://localhost:8787` by default; override with
 > **Verify your key first** (15 seconds, streams real synthesized speech):
 > `node scripts/aai-probe.mjs YOUR_KEY` — prints live transcripts and PASS/FAIL.
 >
+> **Who-is-speaking now uses AssemblyAI's ML speaker diarization** (speaker_labels,
+> max_speakers=2): the model separates the two voices and the app maps its "A"/"B"
+> labels onto your enrolled names — far more reliable than local audio analysis for
+> similar voices.
+>
 > The status pill shows the active engine: **"Live · AssemblyAI"** when connected.
 > With no key it falls back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
 > ("On-device (slow)") then Web Speech. Speaker attribution is always local. Must
