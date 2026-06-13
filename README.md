@@ -51,7 +51,7 @@ The frontend points at `http://localhost:8787` by default; override with
 >
 > The status pill shows the active engine: **"Live · AssemblyAI"** when connected.
 > With no key it falls back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
-> ("On-device (slow)") then Web Speech. Speaker attribution is always local. Must
+> ("On-device (slow)") then Web Speech — those fallbacks attribute speakers locally. Must
 > be served over **HTTPS** (or localhost) for microphone access.
 
 ## How the speaker detection works
