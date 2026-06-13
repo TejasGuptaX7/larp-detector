@@ -84,19 +84,23 @@ export function startTranscription(h: SttHandlers): SttHandle {
   let stopped = false;
 
   (async () => {
-    const token = await getAaiToken();
+    // Probe for a token once: if a key is configured anywhere, take the
+    // AssemblyAI path (it re-mints fresh tokens itself on every reconnect).
+    const probe = await getAaiToken();
     if (stopped) return;
 
-    if (token) {
-      let listened = false;
+    if (probe) {
+      let fellBack = false;
       current = startAssemblyAI(
         {
           ...h,
           onStatus: (s, d) => {
-            if (s === "listening") listened = true;
-            // If the realtime socket fails before we ever heard anything, the
-            // key/connection is bad — fall back to in-browser instead of dying.
-            if (s === "error" && !listened && !stopped) {
+            // AssemblyAI only emits "error" when it has truly given up
+            // (bad key, or reconnects exhausted). Whether that happens at
+            // connect time or mid-session, drop to the on-device engine
+            // instead of leaving the session with no transcription at all.
+            if (s === "error" && !fellBack && !stopped) {
+              fellBack = true;
               try {
                 current?.stop();
               } catch {
@@ -108,7 +112,7 @@ export function startTranscription(h: SttHandlers): SttHandle {
             h.onStatus?.(s, d);
           },
         },
-        token,
+        getAaiToken,
       );
     } else {
       current = startInBrowser(h);

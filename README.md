@@ -41,6 +41,9 @@ The frontend points at `http://localhost:8787` by default; override with
 >   server instead; the browser fetches a short-lived token from `/api/aai-token`
 >   so the real key never reaches the client.
 >
+> **Verify your key first** (15 seconds, streams real synthesized speech):
+> `node scripts/aai-probe.mjs YOUR_KEY` — prints live transcripts and PASS/FAIL.
+>
 > The status pill shows the active engine: **"Live · AssemblyAI"** when connected.
 > With no key it falls back to in-browser [Moonshine](https://huggingface.co/onnx-community/moonshine-base-ONNX)
 > ("On-device (slow)") then Web Speech. Speaker attribution is always local. Must
